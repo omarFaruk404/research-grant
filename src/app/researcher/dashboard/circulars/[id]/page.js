@@ -64,7 +64,7 @@ export default function CircularDetailsPage() {
       )}
 
       <Link
-        href="/researcher/dashboard/circular"
+        href="/researcher/dashboard/circulars"
         className="btn btn-secondary ms-2"
       >
         Back
