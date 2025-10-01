@@ -11,13 +11,7 @@ export default function ResearcherDashboard() {
 
 return (
     <div>
-      <div>hello worldddddddddddd</div>
-      <div>hello worldddddddddddd</div>
-            <div>hello worldddddddddddd</div>
-                  <div>hello worldddddddddddd</div>
-                        <div>hello worldddddddddddd</div>
-                              <div>hello worldddddddddddd</div>
-                                    <div>hello worldddddddddddd</div>
+
     </div>
   );
 }
