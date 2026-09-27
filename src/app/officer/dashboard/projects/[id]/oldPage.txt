@@ -1,0 +1,376 @@
+"use client";
+
+import { useEffect, useState, useRef } from "react";
+import { useParams, useRouter } from "next/navigation";
+
+const STATUS_MAP = {
+  0: "Rejected",
+  1: "Proposal Submitted",
+  2: "Proposal Under Review",
+  3: "Project Accepted / Ongoing",
+  4: "Project Report Submitted",
+  5: "Project Completed",
+};
+
+export default function ProjectDetails() {
+  const { id } = useParams();
+  const router = useRouter();
+  const dropdownRef = useRef(null);
+
+  const [project, setProject] = useState(null);
+  const [proposal, setProposal] = useState(null);
+  const [finalReport, setFinalReport] = useState(null);
+  const [proposalReview, setProposalReview] = useState(null);
+  const [finalReportReview, setFinalReportReview] = useState(null);
+
+  const [reviewers, setReviewers] = useState([]);
+  const [filteredReviewers, setFilteredReviewers] = useState([]);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedReviewerId, setSelectedReviewerId] = useState("");
+  const [selectedReviewerName, setSelectedReviewerName] = useState("");
+  const [dueDate, setDueDate] = useState("");
+
+  const [manualMarks, setManualMarks] = useState("");
+  const [manualComments, setManualComments] = useState("");
+  const [decision, setDecision] = useState("");
+
+  const [allocatedBudget, setAllocatedBudget] = useState("");
+  const [user, setUser] = useState(null);
+
+  const [loading, setLoading] = useState(true);
+
+  /* 🔐 AUTH */
+  useEffect(() => {
+    const stored = localStorage.getItem("user");
+    try {
+      const u = JSON.parse(stored);
+      if (!u || u.role !== 1) router.push("/login");
+      setUser(u);
+    } catch {
+      router.push("/login");
+    }
+  }, [router]);
+
+  /* 📦 LOAD DATA */
+  useEffect(() => {
+    async function load() {
+      const res = await fetch(`/api/officer/projects/${id}`);
+      const data = await res.json();
+      console.log(data);
+      setProject(data.project);
+      setProposal(data.proposal);
+      setFinalReport(data.final_report);
+      setProposalReview(data.proposal_review);
+      setFinalReportReview(data.final_report_review);
+
+      if (data.project?.allocated_budget != null) {
+        setAllocatedBudget(String(data.project.allocated_budget));
+      }
+
+      setLoading(false);
+    }
+
+    async function loadReviewers() {
+      const res = await fetch("/api/reviewers");
+      const data = await res.json();
+      setReviewers(data);
+      setFilteredReviewers(data);
+    }
+
+    load();
+    loadReviewers();
+  }, [id]);
+
+  /* 🔍 SEARCH */
+  const handleSearch = (e) => {
+    const v = e.target.value.toLowerCase();
+    setSearchTerm(v);
+    setFilteredReviewers(
+      reviewers.filter(
+        (r) =>
+          r.name.toLowerCase().includes(v) ||
+          r.email.toLowerCase().includes(v)
+      )
+    );
+  };
+
+  const handleReviewerSelect = (id, name) => {
+    setSelectedReviewerId(id);
+    setSelectedReviewerName(name);
+    setShowSearch(false);
+  };
+
+  /* 👤 ASSIGN REVIEWER */
+  const assignReviewer = async () => {
+    if (!selectedReviewerId || !dueDate)
+      return alert("Reviewer & due date required");
+
+    await fetch(`/api/officer/projects/${id}/assign-reviewer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reviewer_id: selectedReviewerId,
+        due_date: dueDate,
+        review_type: 1,
+        assigned_by: user.user_id,
+      }),
+    });
+
+    alert("Reviewer assigned");
+    location.reload();
+  };
+
+  /* ✍ MANUAL REVIEW (ONLY IF NOT REVIEWED) */
+  const submitManualReview = async () => {
+    if (!manualMarks || !decision)
+      return alert("Marks & decision required");
+
+    await fetch(`/api/officer/projects/${id}/manual-review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        total_marks: manualMarks,
+        review_comments: manualComments,
+        review_type: 1,
+        reviewer_id:project.reviewer_id,
+        status: Number(decision),
+      }),
+    });
+
+    alert("Manual review submitted");
+    location.reload();
+  };
+
+
+
+
+
+
+  /* 💰 ALLOCATE BUDGET */
+  const saveBudget = async (e) => {
+    e.preventDefault();
+
+    await fetch(`/api/officer/projects/${id}/set-budget`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allocated_budget: allocatedBudget }),
+    });
+
+    alert("Budget allocated");
+    location.reload();
+  };
+
+  /* 📄 FINAL REPORT UPLOAD */
+  const uploadFinalReport = async (e) => {
+    e.preventDefault();
+    const file = e.target.finalReport.files[0];
+    if (!file) return alert("Select a file");
+
+    const formData = new FormData();
+    formData.append("documents", file);
+    formData.append("uploaded_by", user.user_id);
+
+    const res = await fetch(
+      `/api/officer/projects/${id}/submit-report`,
+      { method: "POST", body: formData }
+    );
+
+    if (res.ok) {
+      alert("Final report uploaded");
+      location.reload();
+    }
+  };
+
+  /* ✅ COMPLETE PROJECT */
+  const completeProject = async () => {
+    if (!confirm("Mark project as completed?")) return;
+
+    await fetch(`/api/officer/projects/${id}/mark-complete`, {
+      method: "PUT",
+    });
+
+    alert("Project completed");
+    location.reload();
+  };
+
+  if (loading) return <p className="text-center mt-5">Loading…</p>;
+
+  return (
+    <div className="container mt-4">
+      <h3 className="mb-4">Project Details</h3>
+
+      {/* PROJECT INFO */}
+      <table className="table table-bordered">
+        <tbody>
+          <tr><th>Title</th><td>{project.title}</td></tr>
+          <tr><th>Researcher</th><td>{project.researcher_name}</td></tr>
+          <tr><th>Fiscal Year</th><td>{project.fiscal_year}</td></tr>
+          <tr><th>Status</th><td>{STATUS_MAP[project.status]}</td></tr>
+          <tr><th>Proposed Budget</th><td>{project.proposed_budget} ৳</td></tr>
+          <tr><th>Allocated Budget</th><td>{project.allocated_budget} ৳</td></tr>
+        </tbody>
+      </table>
+
+      {/* PROPOSAL FILES */}
+      <div className="border p-3 mb-4">
+        <h5>Proposal Documents</h5>
+        {proposal?.documents?.map((d, i) => (
+          <a key={i} href={d.url} target="_blank" className="d-block">
+            {d.name}
+          </a>
+        ))}
+      </div>
+
+      {/* PROPOSAL REVIEW DISPLAY */}
+      {proposalReview && (
+        <div className="border p-3 mb-4 bg-light">
+          <h5>Proposal Review</h5>
+          <p><b>Reviewer:</b> {proposalReview.reviewer_name}</p>
+          <p><b>Marks:</b> {proposalReview.total_marks}</p>
+          <p><b>Comments:</b> {proposalReview.review_comments || "—"}</p>
+        </div>
+      )}
+
+
+{/* 🔹 Assign Reviewer Section */} {project.status === 1 && ( <div className="mb-4"> <h5>Assign Reviewer</h5> <div className="row g-3" ref={dropdownRef}> <div className="col-md-5 position-relative"> <label className="form-label">Select Reviewer</label> {!showSearch ? ( <div className="form-select" onClick={() => { setShowSearch(true); setSearchTerm(""); setFilteredReviewers(reviewers); }} style={{ cursor: "pointer" }} > {selectedReviewerName || "Choose Reviewer"} </div> ) : ( <input type="text" value={searchTerm} onChange={handleSearch} className="form-control" placeholder="Search reviewer..." autoFocus /> )} {showSearch && ( <ul className="list-group position-absolute w-100 mt-1" style={{ maxHeight: "200px", overflowY: "auto", zIndex: 10, }} > {filteredReviewers.length > 0 ? ( filteredReviewers.map((r) => ( <li key={r.reviewer_id} className="list-group-item list-group-item-action" onClick={() => handleReviewerSelect(r.reviewer_id, r.name) } style={{ cursor: "pointer" }} > {r.name} <br /> <small className="text-muted">{r.email}</small> </li> )) ) : ( <li className="list-group-item text-muted"> No results found </li> )} </ul> )} </div> <div className="col-md-4"> <label className="form-label">Select Due Date</label> <input type="date" className="form-control" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /> </div> <div className="col-md-3 d-flex align-items-end"> <button className="btn btn-primary w-100" onClick={assignReviewer} > Assign Reviewer </button> </div> </div> </div> )}
+
+      {/* MANUAL REVIEW */}
+      {project.status === 2 && !proposalReview && (
+        <div className="border p-3 mb-4">
+          <h5>Manual Proposal Review</h5>
+          <input
+            className="form-control mb-2"
+            placeholder="Total Marks"
+            value={manualMarks}
+            onChange={(e) => setManualMarks(e.target.value)}
+          />
+          <textarea
+            className="form-control mb-2"
+            placeholder="Comments"
+            value={manualComments}
+            onChange={(e) => setManualComments(e.target.value)}
+          />
+          <select
+            className="form-select mb-2"
+            value={decision}
+            onChange={(e) => setDecision(e.target.value)}
+          >
+            <option value="">Decision</option>
+            <option value="3">Accept</option>
+            <option value="0">Reject</option>
+          </select>
+          <button className="btn btn-success" onClick={submitManualReview}>
+            Submit Review
+          </button>
+        </div>
+      )}
+
+
+      {/* 🔹 Officer Decision After Reviewer Review */}
+      {project.status === 2 && proposalReview && (
+        <div className="border p-3 mb-4 bg-warning-subtle">
+          <h5>Officer Decision</h5>
+          <p className="text-muted">
+            Reviewer has submitted the proposal review. Please accept or reject the
+            project.
+          </p>
+
+          <div className="d-flex gap-2">
+            <button
+              className="btn btn-success"
+              onClick={async () => {
+                if (!confirm("Accept this project and move to Ongoing?")) return;
+
+                const res = await fetch(
+                  `/api/officer/projects/${project.id}/decide-proposal`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ decision: "accept" }),
+                  }
+                );
+
+                if (res.ok) {
+                  alert("Project accepted and moved to Ongoing.");
+                  location.reload();
+                } else {
+                  alert("Failed to accept project.");
+                }
+              }}
+            >
+              ✅ Accept Project
+            </button>
+
+            <button
+              className="btn btn-danger"
+              onClick={async () => {
+                if (!confirm("Reject this project?")) return;
+
+                const res = await fetch(
+                  `/api/officer/projects/${project.id}/decide-proposal`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ decision: "reject" }),
+                  }
+                );
+
+                if (res.ok) {
+                  alert("Project rejected.");
+                  location.reload();
+                } else {
+                  alert("Failed to reject project.");
+                }
+              }}
+            >
+              ❌ Reject Project
+            </button>
+          </div>
+        </div>
+      )}
+
+
+
+      {/* ALLOCATE BUDGET */}
+      {project.status === 3 && (
+        <form onSubmit={saveBudget} className="border p-3 mb-4">
+          <h5>Allocate Budget</h5>
+          <input
+            className="form-control mb-2"
+            value={allocatedBudget}
+            onChange={(e) => setAllocatedBudget(e.target.value)}
+          />
+          <button className="btn btn-primary">Save Budget</button>
+        </form>
+      )}
+
+      {/* FINAL REPORT UPLOAD */}
+      {project.status === 3 && (
+        <form onSubmit={uploadFinalReport} className="border p-3 mb-4">
+          <h5>Upload Final Report</h5>
+          <input type="file" name="finalReport" className="form-control mb-2" />
+          <button className="btn btn-success">Upload</button>
+        </form>
+      )}
+
+      {/* FINAL REPORT REVIEW */}
+      {finalReportReview && (
+        <div className="border p-3 mb-4 bg-light">
+          <h5>Final Report Review</h5>
+          <p><b>Marks:</b> {finalReportReview.total_marks}</p>
+          <p><b>Comments:</b> {finalReportReview.review_comments}</p>
+        </div>
+      )}
+
+      {/* MARK COMPLETE */}
+      {project.status === 4 && (
+        <button className="btn btn-success" onClick={completeProject}>
+          Mark Project as Completed
+        </button>
+      )}
+    </div>
+  );
+}
+
+this is a old version where I viewed the project and edited the project from the same page. But I want separate pages for view and edit.

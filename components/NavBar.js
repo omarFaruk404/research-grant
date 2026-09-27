@@ -1,17 +1,101 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 const NavBar = () => {
+  const [user, setUser] = useState(null);
+  const router = useRouter();
+
+  // ✅ Load user from localStorage and protect dashboard routes
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user");
+
+    if (!storedUser) {
+      router.push("/login");
+      return;
+    }
+
+    try {
+      const parsedUser = JSON.parse(storedUser);
+
+      // Require at least user_id and current_role
+      if (!parsedUser?.user_id || !parsedUser?.current_role) {
+        router.push("/login");
+        return;
+      }
+
+      setUser(parsedUser);
+    } catch (err) {
+      router.push("/login");
+    }
+  }, [router]);
+
+  // ✅ Switch role (only for users with role = 4 (both researcher & reviewer))
+  const handleSwitchRole = () => {
+    if (!user || user.role !== 4) return;
+
+    let newCurrentRole = user.current_role;
+
+    if (user.current_role === "researcher") {
+      newCurrentRole = "reviewer";
+    } else if (user.current_role === "reviewer") {
+      newCurrentRole = "researcher";
+    } else {
+      // officer or invalid current_role – no switching
+      return;
+    }
+
+    const updatedUser = { ...user, current_role: newCurrentRole };
+    setUser(updatedUser);
+    localStorage.setItem("user", JSON.stringify(updatedUser));
+
+    // Redirect to the appropriate dashboard after switch
+    if (newCurrentRole === "researcher") {
+      router.push("/researcher/dashboard");
+    } else if (newCurrentRole === "reviewer") {
+      router.push("/reviewer/dashboard");
+    }
+  };
+
+  // ✅ Logout: clear user and go to login
+  const handleLogout = () => {
+    localStorage.removeItem("user");
+    setUser(null);
+    router.push("/login");
+  };
+
+  // ✅ Helper to get the correct profile link based on current role
+  const getProfileLink = () => {
+    if (!user) return "#";
+    
+    if (user.current_role === "researcher") {
+      return "/researcher/dashboard/profile";
+    } else if (user.current_role === "reviewer") {
+      return "/reviewer/dashboard/profile";
+    } else {
+      // Default to officer if role is not researcher/reviewer (or role 1)
+      return "/officer/dashboard/profile";
+    }
+  };
+
   return (
-    <nav className="navbar navbar-expand-lg navbar-light bg-light px-3 fixed-top">
-      {/* Brand */}
-      <a className="navbar-brand fw-bold" href="#">
-        Ready Dashboard
+    <nav
+      // Changed 'navbar-dark' to 'navbar-light' for dark text on light background
+      className="navbar navbar-expand-lg navbar-light px-3 fixed-top"
+      style={{
+        backgroundColor: "#F8F9FA", // ✅ Updated Background Color
+        zIndex: 999,
+      }}
+    >
+      {/* Brand with Logo Placeholder */}
+      <a className="navbar-brand fw-bold text-dark" href="#">
+        
       </a>
 
       {/* Collapse button for mobile */}
       <button
-        className="navbar-toggler"
+        className="navbar-toggler border-0"
         type="button"
         data-bs-toggle="collapse"
         data-bs-target="#navbarSupportedContent"
@@ -25,142 +109,50 @@ const NavBar = () => {
       <div className="collapse navbar-collapse" id="navbarSupportedContent">
         {/* Push content to the right */}
         <ul className="navbar-nav ms-auto align-items-center">
-
           {/* Messages icon */}
           <li className="nav-item me-3">
-            <a className="nav-link position-relative" href="#">
+            <a className="nav-link position-relative text-secondary" href="#">
               <i className="bi bi-envelope fs-5"></i>
             </a>
           </li>
 
-          {/* Notifications Dropdown */}
-          <li className="nav-item dropdown me-3">
+          {/* Profile Dropdown */}
+          <li className="nav-item dropdown">
             <a
-              className="nav-link position-relative"
-              href="#"
-              id="notificationDropdown"
-              role="button"
-              data-bs-toggle="dropdown"
-              aria-expanded="false"
-            >
-              <img
-                src="/assets/icons/notification.png"
-                alt="Notifications"
-                className="icon"
-                height="24"
-                width="24"
-              />
-              <span className="position-absolute translate-middle badge rounded-pill bg-danger"
-                style={{
-                  top: '10px',      // move it slightly down
-                  right: '-10px',    // move it slightly right
-                  fontSize: '0.6rem' // optional, make badge smaller
-                }}
-
-              >
-                3
-              </span>
-            </a>
-            <ul
-              className="dropdown-menu dropdown-menu-end p-2"
-              aria-labelledby="notificationDropdown"
-              style={{ minWidth: "300px" }}
-            >
-              <li className="dropdown-header fw-bold">
-                You have 4 new notifications
-              </li>
-              <li>
-                <a className="dropdown-item d-flex align-items-center" href="#">
-                  <div className="me-2 text-primary">
-                    <i className="bi bi-person-plus fs-5"></i>
-                  </div>
-                  <div>
-                    <div>New user registered</div>
-                    <small className="text-muted">5 minutes ago</small>
-                  </div>
-                </a>
-              </li>
-              <li>
-                <a className="dropdown-item d-flex align-items-center" href="#">
-                  <div className="me-2 text-success">
-                    <i className="bi bi-chat-left-text fs-5"></i>
-                  </div>
-                  <div>
-                    <div>Rahmad commented on Admin</div>
-                    <small className="text-muted">12 minutes ago</small>
-                  </div>
-                </a>
-              </li>
-              <li>
-                <a className="dropdown-item d-flex align-items-center" href="#">
-                  <img
-                    src="/assets/icons/notification.png"
-                    alt="Reza"
-                    className="rounded-circle me-2"
-                  />
-                  <div>
-                    <div>Reza sent messages to you</div>
-                    <small className="text-muted">12 minutes ago</small>
-                  </div>
-                </a>
-              </li>
-              <li>
-                <a className="dropdown-item d-flex align-items-center" href="#">
-                  <div className="me-2 text-danger">
-                    <i className="bi bi-heart fs-5"></i>
-                  </div>
-                  <div>
-                    <div>Farrah liked Admin</div>
-                    <small className="text-muted">17 minutes ago</small>
-                  </div>
-                </a>
-              </li>
-              <li>
-                <hr className="dropdown-divider" />
-              </li>
-              <li>
-                <a className="dropdown-item text-center fw-bold" href="#">
-                  See all notifications
-                </a>
-              </li>
-            </ul>
-          </li>
-
-          {/* Profile Dropdown */}<li className="nav-item dropdown">
-            <a
-              className="nav-link dropdown-toggle d-flex align-items-center"
+              className="nav-link dropdown-toggle d-flex align-items-center text-dark" // Changed text to dark
               href="#"
               id="profileDropdown"
               role="button"
               data-bs-toggle="dropdown"
               aria-expanded="false"
             >
+              {/* ✅ FIXED: Added object-fit-cover to prevent stretching */}
               <img
-                src="/assets/img/profile.jpg"
+                src={user?.profile_photo || "/assets/img/profile.jpg"}
                 alt="profile"
                 width="32"
                 height="32"
-                className="rounded-circle me-2"
+                className="rounded-circle me-2 border object-fit-cover"
               />
-              <span>Dr. John Doe</span>
+              <span className="text-dark fw-medium">{user?.name}</span>
             </a>
             <ul
-              className="dropdown-menu dropdown-menu-end"
+              className="dropdown-menu dropdown-menu-end border-0 shadow"
               aria-labelledby="profileDropdown"
             >
-              {/* Profile header with image on left and text on right */}
               <li className="dropdown-item">
                 <div className="d-flex align-items-center">
+                  {/* ✅ FIXED: Added object-fit-cover to prevent stretching */}
                   <img
-                    src="/assets/img/profile.jpg"
+                    src={user?.profile_photo || "/assets/img/profile.jpg"}
                     alt="profile"
                     width="48"
                     height="48"
-                    className="rounded-circle me-3"
+                    className="rounded-circle me-3 border object-fit-cover"
                   />
                   <div>
-                    <div className="fw-bold">Dr. John Doe</div>
-                    <small className="text-muted">johndoe@gmail.com</small>
+                    <div className="fw-bold text-dark">{user?.name}</div>
+                    <small className="text-muted">{user?.email}</small>
                   </div>
                 </div>
               </li>
@@ -169,27 +161,56 @@ const NavBar = () => {
                 <hr className="dropdown-divider" />
               </li>
 
-              {/* Dropdown action buttons */}
+              {/* ✅ Dynamic Profile Link */}
               <li className="px-3 mb-2">
-                <button className="btn btn-sm btn-danger w-100">View Profile</button>
+                <Link
+                  href={getProfileLink()}
+                  className="btn btn-sm w-100"
+                  style={{
+                    backgroundColor: "#6679EE",
+                    color: "#fff",
+                  }}
+                >
+                  Edit Profile
+                </Link>
               </li>
+
+              {/* 🔁 Show switch role only if user has DB role = 4 */}
+              {user?.role === 4 && (
+                <li className="px-3 mb-2">
+                  <button
+                    className="btn btn-sm w-100"
+                    style={{
+                      backgroundColor: "#243447",
+                      color: "#fff",
+                    }}
+                    onClick={handleSwitchRole}
+                  >
+                    {user.current_role === "researcher"
+                      ? "Switch to Reviewer"
+                      : user.current_role === "reviewer"
+                      ? "Switch to Researcher"
+                      : "Switch Role"}
+                  </button>
+                </li>
+              )}
 
               <li>
                 <hr className="dropdown-divider" />
               </li>
 
-              {/* Other links */}
-              <li><a className="dropdown-item" href="#">My Profile</a></li>
-              <li><a className="dropdown-item" href="#">My Balance</a></li>
-              <li><a className="dropdown-item" href="#">Inbox</a></li>
-              <li><a className="dropdown-item" href="#">Account Setting</a></li>
               <li>
-                <hr className="dropdown-divider" />
+                <button
+                  className="dropdown-item text-danger"
+                  type="button"
+                  onClick={handleLogout}
+                >
+                  <i className="bi bi-box-arrow-right me-2"></i>
+                  Logout
+                </button>
               </li>
-              <li><a className="dropdown-item text-danger" href="#">Logout</a></li>
             </ul>
           </li>
-
         </ul>
       </div>
     </nav>

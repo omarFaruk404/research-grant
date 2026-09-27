@@ -1,37 +1,54 @@
+import { getDB } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { getDB, initDB } from "@/lib/db";
-import jwt from "jsonwebtoken";
+import { withAuth } from "@/lib/auth";
 
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
-
-export async function GET(req) {
+export const GET = withAuth(async (req) => {
   try {
-    await initDB();
-    const pool = await getDB();
+    const { searchParams } = new URL(req.url);
+    const reviewerId = searchParams.get("reviewer_id");
 
-    const token = req.cookies.get("token")?.value;
-    if (!token) return NextResponse.redirect(new URL("/login", req.url));
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-    if (decoded.role !== "reviewer") {
-
-      return NextResponse.redirect(
-        new URL(`/${decoded.role}/dashboard`, req.url)
+    if (!reviewerId) {
+      return NextResponse.json(
+        { error: "reviewer_id is required" },
+        { status: 400 }
       );
     }
 
-const [rows] = await pool.query(
-  `SELECT rp.*, u.name AS researcher_name, rp.created_at AS submitted_at
-   FROM research_projects rp
-   JOIN users u ON rp.researcher_id = u.id
-   WHERE rp.assigned_reviewer_id = ?
-   ORDER BY rp.created_at DESC`,
-  [decoded.id]
-);
+    const db = await getDB();
 
+    const [rows] = await db.query(
+      `
+      SELECT
+        pr.id AS project_review_id,
+        pr.project_id,
+        pr.review_type,
+        pr.due_date,
+        pr.status AS review_status,
+
+        p.title,
+        p.code_no,
+        p.abstract,
+        p.status AS project_status,
+
+        fy.year_label AS fiscal_year
+
+      FROM project_review pr
+      INNER JOIN project p ON pr.project_id = p.id
+      LEFT JOIN fiscal_year fy ON p.fiscal_year_id = fy.id
+
+      WHERE pr.reviewer_id = ?
+      ORDER BY pr.assigned_at DESC
+      `,
+      [reviewerId]
+    );
 
     return NextResponse.json(rows);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch reviewer projects" }, { status: 500 });
+  } catch (err) {
+    console.error("Reviewer projects error:", err);
+    return NextResponse.json(
+      { error: "Failed to load reviewer projects" },
+      { status: 500 }
+    );
   }
 }
+)

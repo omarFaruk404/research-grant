@@ -1,71 +1,113 @@
-import { NextResponse } from "next/server";
-import { getDB, initDB } from "@/lib/db";
-import jwt from "jsonwebtoken";
-import fs from "fs";
+import { getDB } from "@/lib/db";
+import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/auth";
 
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
-
-// Disable body parsing to handle formData
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
-export async function POST(req) {
+export const POST = withAuth(async (req) => {
   try {
-    await initDB();
-    const pool = await getDB();
+    const formData = await req.formData();
 
-    const token = req.cookies.get("token")?.value;
-    if (!token) return NextResponse.redirect(new URL("/login", req.url));
+    // 1. Extract Basic Fields
+    const rawCodeNo = formData.get("code_no");
+    const code_no = rawCodeNo && rawCodeNo.toString().trim() !== "" ? rawCodeNo.toString().trim() : null;
+    
+    const title = formData.get("title");
+    const researcher_id = formData.get("researcher_id");
+    const fiscal_year_id = formData.get("fiscal_year_id");
+    const circular_id = formData.get("circular_id"); // ✅ NEW: Get Circular ID
+    const proposed_budget = formData.get("proposed_budget") || "0";
+    const uploaded_by = formData.get("uploaded_by") || null;
 
-    const decoded = jwt.verify(token, JWT_SECRET);
-    if (decoded.role !== "researcher") {
+    // 2. Process Abstract & Keywords
+    let abstractText = formData.get("abstract") || "";
+    const keywordsRaw = formData.get("keywords"); // ✅ NEW: Get Keywords JSON
 
-      return NextResponse.redirect(
-        new URL(`/${decoded.role}/dashboard`, req.url)
+    if (keywordsRaw) {
+        try {
+            const keywords = JSON.parse(keywordsRaw);
+            if (Array.isArray(keywords) && keywords.length > 0) {
+                // Append keywords to the end of the abstract
+                abstractText += `\n\nKeywords: ${keywords.join(", ")}`;
+            }
+        } catch (e) {
+            console.error("Error parsing keywords:", e);
+        }
+    }
+
+    // 3. Validation
+    if (!title || !researcher_id || !fiscal_year_id || !circular_id) {
+      return NextResponse.json(
+        { message: "Missing required fields (Title, Year, or Circular)" },
+        { status: 400 }
       );
     }
 
-    const formData = await req.formData();
-    const title = formData.get("title");
-    const description = formData.get("description");
-    const required_funds = formData.get("required_funds");
-    const files = formData.getAll("files");
+    const db = await getDB();
 
-    // insert project
-    const [result] = await pool.query(
-      `INSERT INTO research_projects (researcher_id, title, description, required_funds)
-       VALUES (?, ?, ?, ?)`,
-      [decoded.id, title, description, required_funds]
+    // 4. Insert Project Record
+    // ✅ Updated: Included 'circular_id' and mapped 'abstract' to 'abstract' column
+    const [result] = await db.query(
+      `INSERT INTO project 
+        (code_no, title, researcher_id, fiscal_year_id, circular_id, abstract, proposed_budget, status, proposal_submission_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURDATE())`,
+      [code_no, title, researcher_id, fiscal_year_id, circular_id, abstractText, proposed_budget]
     );
 
     const projectId = result.insertId;
 
-    // save files if provided
-    if (files.length > 0) {
-      const uploadDir = path.join(process.cwd(), "public", "uploads");
-      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    // 5. Handle Multiple Documents
+    const documents = formData.getAll("documents"); // ✅ Get all files
+    let fileArray = [];
 
-      for (const file of files) {
+    if (documents && documents.length > 0) {
+      const uploadDir = path.join(process.cwd(), "public", "uploads", "projects");
+      // Ensure directory exists
+      await mkdir(uploadDir, { recursive: true });
+
+      for (const file of documents) {
+        // Validation: skip if not a valid file
+        if (!file || typeof file !== "object" || !file.name) continue;
+
         const buffer = Buffer.from(await file.arrayBuffer());
-        const fileName = `${Date.now()}-${file.name}`;
+        // Clean filename to prevent issues
+        const safeName = file.name.replace(/[^a-z0-9.]/gi, '_').toLowerCase();
+        const fileName = `${Date.now()}_${safeName}`;
         const filePath = path.join(uploadDir, fileName);
 
-        fs.writeFileSync(filePath, buffer);
+        await writeFile(filePath, buffer);
 
-        await pool.query(
-          `INSERT INTO project_files (project_id, file_path, file_type) VALUES (?, ?, ?)`,
-          [projectId, `/uploads/${fileName}`, file.type]
-        );
+        fileArray.push({
+          name: file.name, // Display name
+          url: `/uploads/projects/${fileName}` // Storage URL
+        });
       }
     }
 
-    return NextResponse.json({ success: true, projectId });
+    // 6. Save Proposal Report Entry
+    // This creates the initial entry in project_report
+    if (fileArray.length > 0) {
+        await db.query(
+          `INSERT INTO project_report 
+            (project_id, status, submission_date, type, documents, uploaded_by)
+           VALUES (?, 1, CURDATE(), 'proposal', ?, ?)`,
+          [projectId, JSON.stringify(fileArray), uploaded_by]
+        );
+    }
+
+    return NextResponse.json({
+      message: "✅ Project proposal submitted successfully",
+      project_id: projectId,
+    });
+
   } catch (error) {
-    console.error("Create project error:", error);
-    return NextResponse.json({ error: "Failed to create project" }, { status: 500 });
+    console.error("Error creating project (researcher):", error);
+    return NextResponse.json(
+      {
+        message: "❌ Error creating project",
+        error: error.message,
+      },
+      { status: 500 }
+    );
   }
-}
+});

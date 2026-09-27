@@ -1,36 +1,31 @@
-// src/app/api/officer/projects/route.js
-import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
-import jwt from "jsonwebtoken";
+import { withAuth } from "@/lib/auth";
 
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
+export const GET = withAuth(async (req) => {
+  const db = getDB();   
 
-export async function GET(req) {
-  try {
-    const db = await getDB();
-    const token = req.cookies.get("token")?.value;
 
-    if (!token) return NextResponse.redirect(new URL("/login", req.url));
+  const [rows] = await db.query(`
+    SELECT 
+      p.id,
+      p.code_no,
+      p.title,
+      p.status,
+      p.proposal_submission_date AS submission_date,
+      fy.year_label AS fiscal_year,
+      r.id AS researcher_id,
+      u.name AS researcher_name,
+      f.name AS faculty,
+      d.name AS department
+    FROM project p
+    LEFT JOIN fiscal_year fy ON p.fiscal_year_id = fy.id
+    LEFT JOIN researcher r ON p.researcher_id = r.id
+    LEFT JOIN user u ON r.user_id = u.id
+    LEFT JOIN faculty f ON r.faculty_id = f.id
+    LEFT JOIN department d ON r.department_id = d.id
+    ORDER BY p.created_at DESC
+  `);
 
-    const decoded = jwt.verify(token, JWT_SECRET);
-    if (decoded.role !== "officer") {
-
-      return NextResponse.redirect(
-        new URL(`/${decoded.role}/dashboard`, req.url)
-      );
-    }
-
-const [rows] = await db.query(`
-  SELECT rp.id, rp.title, rp.description, rp.status, 
-         u.name AS researcher_name, rp.created_at AS submitted_at
-  FROM research_projects rp
-  JOIN users u ON rp.researcher_id = u.id
-  ORDER BY rp.created_at DESC
-`);
-
-    return Response.json(rows);
-  } catch (err) {
-    console.error(err);
-    return Response.json({ error: "Failed to fetch projects" }, { status: 500 });
-  }
+  return Response.json(rows);
 }
+)
